@@ -2128,6 +2128,8 @@ namespace rb
 		}).detach();
 	}
 
+	void practice_frame(); // practice tools, defined below
+
 	void rb_frame_step(ppu_thread& ppu, u32 root)
 	{
 		if (g_state.synced)
