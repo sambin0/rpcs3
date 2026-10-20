@@ -53,6 +53,10 @@ namespace rb
 	// RPCS3 paths that write guest memory through the unprotected view (128-byte atomic stores, reservations).
 	// Netplay (RB_NET=1): the snapshot ring is driven by GGPO. Ready once the first snapshot exists (RB_SNAP_SAVE_AT).
 	bool state_net_ready();
+
+	// Practice tools (t5_practice.hpp): 1 = save the position, 2 = restore it; done at the next frame start
+	void state_practice_request(u32 kind);
+	bool state_practice_ready();
 	void state_net_set_resim(bool resim);
 	void state_net_save(u64 game_frame, const u32 (&seq)[2]);
 	bool state_net_load(u64 game_frame, snapshot_info& out);

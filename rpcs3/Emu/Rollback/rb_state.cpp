@@ -72,6 +72,9 @@ namespace rb
 		std::vector<range_t> g_cal_ranges;
 		std::vector<u8> g_buffer;
 		snapshot_info g_saved{};
+
+		// Practice tools (t5_practice.hpp): 1 = save the position now, 2 = restore it; handled at the next frame start
+		std::atomic<u32> g_practice_req{0};
 		bool g_has_snapshot = false;
 		u64 g_save_at = umax;
 		u64 g_save_rel = umax;   // RB_SNAP_SAVE_AT=+N
@@ -2855,6 +2858,18 @@ namespace rb
 		rb_log.success("Snapshot includes 0x%08x-0x%08x again (%s), %u pages", begin, end, what, pages);
 	}
 
+	// Practice tools: kind 1 = save the position, 2 = restore it. Done at the next frame start. A save asked for before
+	// the first snapshot (RB_SNAP_SAVE_AT) stays pending and is replaced by that snapshot.
+	void state_practice_request(u32 kind)
+	{
+		g_practice_req = kind;
+	}
+
+	bool state_practice_ready()
+	{
+		return g_has_snapshot;
+	}
+
 	bool state_net_ready()
 	{
 		return g_net_mode && g_has_snapshot && !g_store.units.empty();
@@ -3030,6 +3045,7 @@ namespace rb
 
 			g_saved = {game_frame, {seq[0], seq[1]}};
 			g_has_snapshot = true;
+			{ u32 want_save = 1; g_practice_req.compare_exchange_strong(want_save, 0); } // this save is the start position
 			rb_log.success("State saved at game frame %u (port reads %u/%u) in %d us", game_frame, seq[0], seq[1], us);
 
 			if (g_stress_every || g_net_mode)
@@ -3628,6 +3644,27 @@ namespace rb
 			g_ring_valid[slot] = true;
 			cold_check();
 			return false;
+		}
+
+		// Practice tools: save / restore the position on request (the same code as RB_SNAP_SAVE_AT / RB_SNAP_RESTORE_AT)
+		if (const u32 req = g_practice_req.load(); req && g_has_snapshot)
+		{
+			g_practice_req = 0;
+
+			if (req == 1)
+			{
+				copy_ranges<true>(g_buffer.data());
+				g_saved = {game_frame, {seq[0], seq[1]}};
+				rb_log.success("Practice: position saved at game frame %u", game_frame);
+				return false;
+			}
+
+			wait_for_draw_idle();
+			wait_for_flip();
+			copy_ranges<false>(g_buffer.data());
+			out = g_saved;
+			rb_log.success("Practice: position restored at game frame %u to game frame %u", game_frame, g_saved.game_frame);
+			return true;
 		}
 
 		if (game_frame == g_restore_at && g_has_snapshot)

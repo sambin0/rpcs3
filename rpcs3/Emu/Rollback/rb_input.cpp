@@ -3,6 +3,7 @@
 #include "rb_checksum.h"
 #include "rb_state.h"
 #include "rb_t5dr.h"
+#include "t5_practice.hpp" // practice tools (frame data, position restart); before windows.h (winsock)
 
 #include "Emu/Cell/timers.hpp"
 #include "Emu/Cell/PPUThread.h"
@@ -41,6 +42,8 @@ extern bool ppu_form_branch_to_code(u32 entry, u32 target);
 
 namespace rb
 {
+	t5::Practice g_practice; // RB_T5_PRACTICE=1 (started by the ladder launcher), never together with RB_NET=1
+
 	bool g_t5dr = false; // Tekken 5 DR (rb_t5dr.h): frame hook installed on its task walk
 	bool g_t5_last_walk_resim = false; // T5DR: the previous main loop iteration's task walk was a re-simulated frame
 
@@ -2279,6 +2282,8 @@ namespace rb
 			run_task_walk(ppu, root);
 		}
 
+		practice_frame();
+
 		// The frame end at the start of the next iteration flips this frame only if it was a live one
 		g_t5_last_walk_resim = g_t5dr && g_state.synced && state_resimulating(g_boundary_frame);
 
@@ -2403,6 +2408,48 @@ namespace rb
 	u64 sync_game_frame()
 	{
 		return g_sync_frame;
+	}
+
+	// Practice tools: runs after every live frame (not while re-simulating)
+	void practice_frame()
+	{
+		static const bool enabled = get_env("RB_T5_PRACTICE") == "1" && get_env("RB_NET") != "1";
+
+		if (!enabled || !g_t5dr)
+		{
+			return;
+		}
+
+		static bool started = false;
+		static bool fight = false;
+
+		if (!started)
+		{
+			started = true;
+			g_practice.ptr = [](uint32_t a) -> uint8_t* { return vm::check_addr(a, vm::page_readable) ? vm::get_super_ptr<u8>(a) : nullptr; };
+			g_practice.save_position = [] { state_practice_request(1); return true; };
+			g_practice.restore_position = [] { if (!state_practice_ready()) return false; state_practice_request(2); return true; };
+			g_practice.start_from_env();
+		}
+
+		if (!g_state.synced)
+		{
+			fight = false;
+			return;
+		}
+
+		if (state_resimulating(g_boundary_frame))
+		{
+			return;
+		}
+
+		if (!fight)
+		{
+			fight = true;
+			g_practice.on_fight_start();
+		}
+
+		g_practice.on_frame(static_cast<int>(g_state.seq[0] - g_sync_frame));
 	}
 
 	void begin_frame()
